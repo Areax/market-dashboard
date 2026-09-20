@@ -26,12 +26,13 @@ def dashboard():
     fear_greed = _load("fear_greed.json", {})
     vix = _load("vix.json", {})
     heatmap = _load("heatmap.json", {"stocks": []})
+    fedwatch = _load("fedwatch.json", {"meetings": []})
     econ = _load("econ_calendar.json", {"days": [], "fred_actuals": {}})
     earnings = _load("earnings_calendar.json", {"next_week": {"range": "", "companies": []}, "last_week": {"range": "", "companies": []}})
     briefing = _load("briefing.json", {"headlines": []})
 
     oldest_ts = min(
-        [d.get("as_of", 0) for d in [fear_greed, vix, heatmap, econ, earnings, briefing] if d.get("as_of")],
+        [d.get("as_of", 0) for d in [fear_greed, vix, heatmap, fedwatch, econ, earnings, briefing] if d.get("as_of")],
         default=None,
     )
 
@@ -40,6 +41,7 @@ def dashboard():
         fear_greed=fear_greed,
         vix=vix,
         heatmap=heatmap,
+        fedwatch=fedwatch,
         econ=econ,
         earnings=earnings,
         briefing=briefing,

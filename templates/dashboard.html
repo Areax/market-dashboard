@@ -116,6 +116,16 @@
     letter-spacing: 0;
   }
   .toggle-btn.active { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  .prob-badge {
+    display: inline-block;
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+    margin: 2px 6px 2px 0;
+    font-size: 12px;
+  }
+  code { font-family: ui-monospace, monospace; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -196,14 +206,41 @@
     <div id="heatmapDiv"></div>
   </div>
 
-  <!-- CME FedWatch (link out) -->
-  <div class="card link-out-card">
-    <h2 style="width:100%;">CME FedWatch — FOMC Probabilities</h2>
-    <p>
-      On the live tool, switch the view to <b>Target Rate &rarr; Aggregated</b> to get the
-      meeting-by-meeting probability table (odds of each rate range at each upcoming FOMC date).
+  <!-- CME FedWatch (self-computed) -->
+  <div class="card full">
+    <h2>FedWatch — FOMC Rate Probabilities (self-computed)
+      <span>
+        <a href="https://finance.yahoo.com/quote/ZQ%3DF/" target="_blank">Yahoo Finance (data) &rarr;</a>
+        &nbsp;<a href="https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html" target="_blank">CME FedWatch (verify) &rarr;</a>
+      </span>
+    </h2>
+    <p class="sub-stat" style="margin-bottom:10px;">
+      Not CME's own feed — computed here from live Fed Funds futures prices (30-Day Fed Funds,
+      ticker <code>ZQ</code>) using CME's published "Aggregated" methodology: each future month's
+      contract compared against today's target rate. Validated against a real FedWatch screenshot:
+      exact on meetings followed by a full calendar month with no other meeting in it; within a few
+      points elsewhere, where a shared month has to be split into before/after the meeting. On the
+      live tool this is the <b>Target Rate &rarr; Aggregated</b> view — use the CME link above to
+      cross-check.
     </p>
-    <a class="btn" href="https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html" target="_blank">Open live FedWatch tool &rarr;</a>
+    {% if fedwatch.get('meetings') %}
+    <p class="sub-stat" style="margin-bottom:10px;">Current target: <b>{{ fedwatch.current_target }}</b> &middot; EFFR: <b>{{ fedwatch.effr }}</b></p>
+    <table>
+      <tr><th>Meeting</th><th colspan="2">Rate range probabilities</th></tr>
+      {% for m in fedwatch.meetings %}
+      <tr>
+        <td>{{ m.date_label }}</td>
+        <td colspan="2">
+          {% for b in m.buckets %}
+          <span class="prob-badge">{{ b.label }}: <b>{{ b.probability }}%</b></span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="sub-stat">No data yet — click Refresh Data.</p>
+    {% endif %}
   </div>
 
   <!-- Briefing.com -->

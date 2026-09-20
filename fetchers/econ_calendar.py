@@ -10,14 +10,14 @@ so it isn't something to script around. Instead this uses:
     CPI / PPI month-over-month change, since the calendar feed doesn't carry
     "actual" until well after release
 """
-import csv
-import io
 import json
 import time
 from datetime import datetime
 from pathlib import Path
 
 import requests
+
+from fetchers.fred_utils import fetch_series
 
 CACHE_PATH = Path(__file__).resolve().parent.parent / "data" / "econ_calendar.json"
 CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
@@ -31,14 +31,10 @@ HIGHLIGHT_KEYWORDS = ["cpi", "consumer price", "ppi", "producer price"]
 
 
 def _fred_latest_mom_pct(series_id):
-    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-    resp = requests.get(url, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    rows = list(csv.reader(io.StringIO(resp.text)))
-    data_rows = [r for r in rows[1:] if len(r) == 2 and r[1] not in ("", ".")]
-    if len(data_rows) < 2:
+    rows = fetch_series(series_id)
+    if len(rows) < 2:
         return None
-    (date_prev, val_prev), (date_last, val_last) = data_rows[-2], data_rows[-1]
+    (date_prev, val_prev), (date_last, val_last) = rows[-2], rows[-1]
     pct = (float(val_last) - float(val_prev)) / float(val_prev) * 100
     return {"date": date_last, "value": round(pct, 2)}
 
