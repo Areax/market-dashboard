@@ -136,7 +136,13 @@
     <div class="meta" id="lastUpdated"
       data-oldest-ts="{{ oldest_ts or '' }}">Loading last-updated time...</div>
   </div>
+  {% if is_static %}
+  <div class="meta" style="text-align:right;">Auto-updates daily, ~8:45am ET on market days<br>
+    <a href="https://github.com/Areax/market-dashboard" target="_blank">Source on GitHub &rarr;</a>
+  </div>
+  {% else %}
   <button id="refreshBtn" onclick="refreshData()">Refresh Data</button>
+  {% endif %}
 </header>
 
 <div class="grid">

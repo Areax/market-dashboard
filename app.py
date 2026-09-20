@@ -21,8 +21,11 @@ def _load(name, default):
         return default
 
 
-@app.route("/")
-def dashboard():
+def build_context(is_static=False):
+    """Loads every cached data source and returns the template context —
+    shared by the local Flask dev server and the static-site builder used
+    for the GitHub Pages deploy.
+    """
     fear_greed = _load("fear_greed.json", {})
     vix = _load("vix.json", {})
     heatmap = _load("heatmap.json", {"stocks": []})
@@ -36,8 +39,7 @@ def dashboard():
         default=None,
     )
 
-    return render_template(
-        "dashboard.html",
+    return dict(
         fear_greed=fear_greed,
         vix=vix,
         heatmap=heatmap,
@@ -46,7 +48,13 @@ def dashboard():
         earnings=earnings,
         briefing=briefing,
         oldest_ts=oldest_ts,
+        is_static=is_static,
     )
+
+
+@app.route("/")
+def dashboard():
+    return render_template("dashboard.html", **build_context(is_static=False))
 
 
 @app.route("/refresh", methods=["POST"])

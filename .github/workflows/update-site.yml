@@ -1,0 +1,86 @@
+name: Update dashboard and deploy to GitHub Pages
+
+on:
+  # GitHub Actions cron is UTC-only and doesn't shift for daylight saving,
+  # so this runs two schedules - one for each side of the DST switch - and
+  # a guard step below skips whichever one fires at the wrong local time.
+  # Both start ~8:40am ET on weekdays: after the 8:30am economic-data
+  # releases have posted (so today's PPI/CPI/etc actuals are captured, not
+  # just forecasts), with the whole run (a couple minutes) finishing well
+  # before the 9:30am market open - plus buffer for GitHub's scheduler
+  # occasionally running a few minutes late (it's best-effort, not exact).
+  schedule:
+    - cron: "40 13 * * 1-5"  # 8:40am EST (UTC-5)
+    - cron: "40 12 * * 1-5"  # 8:40am EDT (UTC-4)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - name: Check local time (skip the wrong-season schedule trigger)
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HOUR=$(TZ="America/New_York" date +%H)
+          if [ "$HOUR" = "08" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping - it's ${HOUR}:00 ET, not the intended ~8am ET slot (this is the other schedule's DST counterpart)."
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.proceed == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.check.outputs.proceed == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        if: steps.check.outputs.proceed == 'true'
+        run: |
+          pip install -r requirements.txt
+
+      - name: Install Playwright's Chromium
+        if: steps.check.outputs.proceed == 'true'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Refresh all data sources
+        if: steps.check.outputs.proceed == 'true'
+        run: python refresh_all.py --force
+
+      - name: Build static site
+        if: steps.check.outputs.proceed == 'true'
+        run: python build_static.py
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.check.outputs.proceed == 'true'
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
