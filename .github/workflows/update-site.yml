@@ -4,14 +4,14 @@ on:
   # GitHub Actions cron is UTC-only and doesn't shift for daylight saving,
   # so this runs two schedules - one for each side of the DST switch - and
   # a guard step below skips whichever one fires at the wrong local time.
-  # Both start ~8:40am ET on weekdays: after the 8:30am economic-data
-  # releases have posted (so today's PPI/CPI/etc actuals are captured, not
-  # just forecasts), with the whole run (a couple minutes) finishing well
-  # before the 9:30am market open - plus buffer for GitHub's scheduler
-  # occasionally running a few minutes late (it's best-effort, not exact).
+  # Both start 8:00am ET on weekdays, comfortably ahead of the 9:30am market
+  # open (plus buffer for GitHub's scheduler occasionally running a few
+  # minutes late - it's best-effort, not exact). Note this is before the
+  # 8:30am economic-data releases, so on a release morning the PPI/CPI
+  # card shows the prior reading until the next day's run picks it up.
   schedule:
-    - cron: "40 13 * * 1-5"  # 8:40am EST (UTC-5)
-    - cron: "40 12 * * 1-5"  # 8:40am EDT (UTC-4)
+    - cron: "0 13 * * 1-5"  # 8:00am EST (UTC-5)
+    - cron: "0 12 * * 1-5"  # 8:00am EDT (UTC-4)
   workflow_dispatch: {}
 
 permissions:

@@ -86,7 +86,7 @@
     gap: 10px;
   }
   .link-out-card p { color: var(--muted); font-size: 13px; margin: 0; line-height: 1.5; }
-  .link-out-card a.btn {
+  a.btn {
     background: var(--accent);
     color: #0d1117;
     padding: 8px 14px;
@@ -137,8 +137,14 @@
       data-oldest-ts="{{ oldest_ts or '' }}">Loading last-updated time...</div>
   </div>
   {% if is_static %}
-  <div class="meta" style="text-align:right;">Auto-updates daily, ~8:45am ET on market days<br>
-    <a href="https://github.com/Areax/market-dashboard" target="_blank">Source on GitHub &rarr;</a>
+  <div style="text-align:right;">
+    <div class="meta">Auto-updates daily, ~8am ET on market days &middot;
+      <a href="https://github.com/Areax/market-dashboard" target="_blank">Source on GitHub</a>
+    </div>
+    <a class="btn" href="https://github.com/Areax/market-dashboard/actions/workflows/update-site.yml"
+      target="_blank" style="display:inline-block; margin-top:6px;">Trigger update &rarr;</a>
+    <div class="meta" style="margin-top:4px;">Only repo collaborators can actually run it from there &mdash;
+      everyone else will just see the workflow page, no feedback here either way.</div>
   </div>
   {% else %}
   <button id="refreshBtn" onclick="refreshData()">Refresh Data</button>
