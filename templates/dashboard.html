@@ -126,6 +126,12 @@
     font-size: 12px;
   }
   code { font-family: ui-monospace, monospace; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .scroll-x { overflow-x: auto; }
+  table.fedwatch-matrix { min-width: 560px; }
+  table.fedwatch-matrix th, table.fedwatch-matrix td { text-align: center; white-space: nowrap; }
+  table.fedwatch-matrix th:first-child, table.fedwatch-matrix td:first-child { text-align: left; }
+  table.fedwatch-matrix td.fw-blue { background: rgba(88, 166, 255, 0.28); color: #eaf4ff; font-weight: 600; }
+  table.fedwatch-matrix td.fw-yellow { background: rgba(240, 183, 9, 0.22); color: #ffe9a8; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -237,19 +243,19 @@
     </p>
     {% if fedwatch.get('meetings') %}
     <p class="sub-stat" style="margin-bottom:10px;">Current target: <b>{{ fedwatch.current_target }}</b> &middot; EFFR: <b>{{ fedwatch.effr }}</b></p>
-    <table>
-      <tr><th>Meeting</th><th colspan="2">Rate range probabilities</th></tr>
+    <div class="scroll-x">
+    <table class="fedwatch-matrix">
+      <tr><th>Meeting Date</th>{% for col in fedwatch.columns %}<th>{{ col }}</th>{% endfor %}</tr>
       {% for m in fedwatch.meetings %}
       <tr>
         <td>{{ m.date_label }}</td>
-        <td colspan="2">
-          {% for b in m.buckets %}
-          <span class="prob-badge">{{ b.label }}: <b>{{ b.probability }}%</b></span>
-          {% endfor %}
-        </td>
+        {% for c in m.cells %}
+        <td class="{{ 'fw-blue' if c.highlight == 'blue' else 'fw-yellow' if c.highlight == 'yellow' else '' }}">{{ '%.2f' | format(c.probability) }}%</td>
+        {% endfor %}
       </tr>
       {% endfor %}
     </table>
+    </div>
     {% else %}
     <p class="sub-stat">No data yet — click Refresh Data.</p>
     {% endif %}

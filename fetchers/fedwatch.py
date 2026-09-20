@@ -132,7 +132,8 @@ def fetch():
         resolved[date] = r_after
         prev_rate = r_after
 
-    meetings = []
+    rows = []
+    all_k = set()
     for date in upcoming:
         if date not in resolved:
             continue
@@ -140,21 +141,48 @@ def fetch():
         k_lo = int(ek // 1)
         frac = ek - k_lo
         p_lo, p_hi = round((1 - frac) * 100, 2), round(frac * 100, 2)
-        lo_band = (ll + 0.25 * k_lo, ul + 0.25 * k_lo)
-        hi_band = (ll + 0.25 * (k_lo + 1), ul + 0.25 * (k_lo + 1))
-        buckets = [
-            {"label": _rate_bucket_label(*lo_band), "probability": p_lo},
-        ]
-        if p_hi > 0.005:
-            buckets.append({"label": _rate_bucket_label(*hi_band), "probability": p_hi})
+        has_hi = p_hi > 0.005
         d = datetime.strptime(date, "%Y-%m-%d")
-        meetings.append({"date": date, "date_label": d.strftime("%-m/%-d/%Y"), "buckets": buckets})
+        rows.append({
+            "date": date, "date_label": d.strftime("%-m/%-d/%Y"),
+            "k_lo": k_lo, "p_lo": p_lo, "p_hi": p_hi if has_hi else 0.0,
+        })
+        all_k.add(k_lo)
+        if has_hi:
+            all_k.add(k_lo + 1)
+
+    # fixed rate-range columns (CME's own "Aggregated" table layout), sorted low to high
+    columns = []
+    for k in sorted(all_k):
+        band = (ll + 0.25 * k, ul + 0.25 * k)
+        columns.append({"k": k, "label": _rate_bucket_label(*band)})
+
+    meetings = []
+    for row in rows:
+        cells = []
+        for col in columns:
+            if col["k"] == row["k_lo"]:
+                prob = row["p_lo"]
+            elif col["k"] == row["k_lo"] + 1:
+                prob = row["p_hi"]
+            else:
+                prob = 0.0
+            nonzero = [v for v in (row["p_lo"], row["p_hi"]) if v > 0.005]
+            if prob > 0.005 and nonzero and prob == max(nonzero):
+                highlight = "blue"
+            elif prob > 0.005 and nonzero and prob == min(nonzero):
+                highlight = "yellow"
+            else:
+                highlight = ""
+            cells.append({"label": col["label"], "probability": round(prob, 2), "highlight": highlight})
+        meetings.append({"date": row["date"], "date_label": row["date_label"], "cells": cells})
 
     result = {
         "as_of": int(time.time()),
         "watch_date": watch_date_str,
         "current_target": f"{ll:.2f}-{ul:.2f}",
         "effr": effr,
+        "columns": [c["label"] for c in columns],
         "meetings": meetings,
     }
     CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +193,7 @@ def fetch():
 if __name__ == "__main__":
     data = fetch()
     print(f"Current target: {data['current_target']}  EFFR: {data['effr']}")
+    print("Columns:", data["columns"])
     for m in data["meetings"]:
-        parts = ", ".join(f"{b['label']}={b['probability']}%" for b in m["buckets"])
+        parts = ", ".join(f"{c['label']}={c['probability']}%({c['highlight'] or '-'})" for c in m["cells"])
         print(f"  {m['date_label']:<12} {parts}")
