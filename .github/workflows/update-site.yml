@@ -2,24 +2,26 @@ name: Update dashboard and deploy to GitHub Pages
 
 on:
   # GitHub Actions cron is UTC-only and doesn't shift for daylight saving,
-  # so this runs two schedules - one for each side of the DST switch - aimed
-  # at 8:00am ET on weekdays.
+  # so this runs two schedules - one for each side of the DST switch.
   #
-  # In practice GitHub's scheduler has been delivering these hours late
-  # (observed 4-6+ hours late, not the "a few minutes" GitHub's docs
-  # describe as typical) - a known characteristic of the free `schedule`
-  # trigger, worse on some days than others. An earlier version of this
-  # workflow tried to compensate with a strict "is it currently ~8am ET?"
-  # guard meant only to filter out the wrong-season cron entry - but with
-  # delays this large, that guard ended up rejecting nearly every run,
-  # including the one that should count, so the site silently stopped
-  # updating. There's no fix for GitHub's own scheduling latency from here,
-  # so this just always runs to completion once GitHub actually delivers
-  # the job, whatever the actual clock time turns out to be, favoring "did
-  # the data refresh today" over "did it refresh at exactly 8am."
+  # GitHub's free scheduler has been delivering these runs 4-6 hours late in
+  # practice (not the "a few minutes" its docs describe as typical) - a
+  # known characteristic of the `schedule` trigger, and apparently worse for
+  # this repo than GitHub's docs would suggest. An earlier version tried to
+  # compensate with a strict "is it currently ~8am ET?" guard, but with
+  # delays that large it rejected nearly every run, including the one that
+  # should have counted, so the site silently stopped updating - the guard
+  # is gone now, every delivered run completes regardless of clock time.
+  #
+  # These cron times are set for 2:00am ET rather than the actual 8am
+  # target, betting on that same 4-6h delay landing delivery around
+  # 6-8am ET. That's based on only a handful of observed samples, not a
+  # guarantee GitHub's load-dependent delay stays in that range - if actual
+  # delivery times (compare each run's start time on the Actions tab against
+  # its cron) drift outside it, these need adjusting again.
   schedule:
-    - cron: "0 13 * * 1-5"  # nominally 8:00am EST (UTC-5)
-    - cron: "0 12 * * 1-5"  # nominally 8:00am EDT (UTC-4)
+    - cron: "0 7 * * 1-5"  # nominally 2:00am EST (UTC-5)
+    - cron: "0 6 * * 1-5"  # nominally 2:00am EDT (UTC-4)
   workflow_dispatch: {}
 
 permissions:
