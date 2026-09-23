@@ -2,16 +2,24 @@ name: Update dashboard and deploy to GitHub Pages
 
 on:
   # GitHub Actions cron is UTC-only and doesn't shift for daylight saving,
-  # so this runs two schedules - one for each side of the DST switch - and
-  # a guard step below skips whichever one fires at the wrong local time.
-  # Both start 8:00am ET on weekdays, comfortably ahead of the 9:30am market
-  # open (plus buffer for GitHub's scheduler occasionally running a few
-  # minutes late - it's best-effort, not exact). Note this is before the
-  # 8:30am economic-data releases, so on a release morning the PPI/CPI
-  # card shows the prior reading until the next day's run picks it up.
+  # so this runs two schedules - one for each side of the DST switch - aimed
+  # at 8:00am ET on weekdays.
+  #
+  # In practice GitHub's scheduler has been delivering these hours late
+  # (observed 4-6+ hours late, not the "a few minutes" GitHub's docs
+  # describe as typical) - a known characteristic of the free `schedule`
+  # trigger, worse on some days than others. An earlier version of this
+  # workflow tried to compensate with a strict "is it currently ~8am ET?"
+  # guard meant only to filter out the wrong-season cron entry - but with
+  # delays this large, that guard ended up rejecting nearly every run,
+  # including the one that should count, so the site silently stopped
+  # updating. There's no fix for GitHub's own scheduling latency from here,
+  # so this just always runs to completion once GitHub actually delivers
+  # the job, whatever the actual clock time turns out to be, favoring "did
+  # the data refresh today" over "did it refresh at exactly 8am."
   schedule:
-    - cron: "0 13 * * 1-5"  # 8:00am EST (UTC-5)
-    - cron: "0 12 * * 1-5"  # 8:00am EDT (UTC-4)
+    - cron: "0 13 * * 1-5"  # nominally 8:00am EST (UTC-5)
+    - cron: "0 12 * * 1-5"  # nominally 8:00am EDT (UTC-4)
   workflow_dispatch: {}
 
 permissions:
@@ -26,57 +34,31 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.check.outputs.proceed }}
     steps:
-      - name: Check local time (skip the wrong-season schedule trigger)
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          HOUR=$(TZ="America/New_York" date +%H)
-          if [ "$HOUR" = "08" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping - it's ${HOUR}:00 ET, not the intended ~8am ET slot (this is the other schedule's DST counterpart)."
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.proceed == 'true'
 
       - uses: actions/setup-python@v5
-        if: steps.check.outputs.proceed == 'true'
         with:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        if: steps.check.outputs.proceed == 'true'
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Install Playwright's Chromium
-        if: steps.check.outputs.proceed == 'true'
         run: python -m playwright install --with-deps chromium
 
       - name: Refresh all data sources
-        if: steps.check.outputs.proceed == 'true'
         run: python refresh_all.py --force
 
       - name: Build static site
-        if: steps.check.outputs.proceed == 'true'
         run: python build_static.py
 
       - uses: actions/upload-pages-artifact@v3
-        if: steps.check.outputs.proceed == 'true'
         with:
           path: dist
 
   deploy:
     needs: build
-    if: needs.build.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

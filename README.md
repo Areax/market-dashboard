@@ -31,13 +31,21 @@ in the page itself instead of restarting the script.
 
 ## GitHub Pages deployment
 
-`.github/workflows/update-site.yml` runs on weekday mornings (~8:40am ET —
-after the 8:30am economic-data releases post, well before the 9:30am market
-open) and on manual trigger. It refreshes every data source, renders
-`build_static.py`'s static `dist/index.html`, and deploys it via GitHub
-Pages. Because Actions cron is UTC-only and doesn't shift for daylight
-saving, two cron entries cover both EST and EDT, and a guard step skips
-whichever one fires at the wrong local time.
+`.github/workflows/update-site.yml` is scheduled for weekday mornings
+(nominally 8:00am ET) and can also be run manually. It refreshes every data
+source, renders `build_static.py`'s static `dist/index.html`, and deploys it
+via GitHub Pages. Two cron entries cover both EST and EDT, since Actions
+cron is UTC-only and doesn't shift for daylight saving.
+
+In practice, GitHub's free scheduler has been delivering these runs
+several hours late (observed 4-6+ hours, not the "a few minutes" its docs
+describe as typical) — a known limitation of the `schedule` trigger, not
+something fixable from the workflow side. An earlier version tried to
+compensate with a strict "is it currently ~8am ET?" guard, but with delays
+that large it ended up rejecting nearly every run — including the one that
+should have counted — so the site silently stopped updating. The workflow
+now just runs to completion whenever GitHub actually delivers the job,
+which is the more important property even if the exact time varies.
 
 To trigger a rebuild manually: **Actions → Update dashboard and deploy to
 GitHub Pages → Run workflow** on GitHub, or `gh workflow run update-site.yml`.
