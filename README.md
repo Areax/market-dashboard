@@ -31,21 +31,19 @@ in the page itself instead of restarting the script.
 
 ## GitHub Pages deployment
 
-`.github/workflows/update-site.yml` is scheduled for weekday mornings
-(nominally 8:00am ET) and can also be run manually. It refreshes every data
-source, renders `build_static.py`'s static `dist/index.html`, and deploys it
-via GitHub Pages. Two cron entries cover both EST and EDT, since Actions
-cron is UTC-only and doesn't shift for daylight saving.
+`.github/workflows/update-site.yml` runs once per weekday and can also be
+run manually. It refreshes every data source, renders `build_static.py`'s
+static `dist/index.html`, and deploys it via GitHub Pages.
 
-In practice, GitHub's free scheduler has been delivering these runs
-several hours late (observed 4-6+ hours, not the "a few minutes" its docs
-describe as typical) — a known limitation of the `schedule` trigger, not
-something fixable from the workflow side. An earlier version tried to
-compensate with a strict "is it currently ~8am ET?" guard, but with delays
-that large it ended up rejecting nearly every run — including the one that
-should have counted — so the site silently stopped updating. The workflow
-now just runs to completion whenever GitHub actually delivers the job,
-which is the more important property even if the exact time varies.
+GitHub's free scheduler delivers these runs several hours late in practice
+(observed 4.5 to 8 hours, not the "a few minutes" its docs describe as
+typical) — a known limitation of the `schedule` trigger. So the cron is set
+to 06:00 UTC (2am EDT / 1am EST), aiming for actual delivery before ~8am ET.
+It's a single entry on purpose: an earlier DST-paired second entry ran
+again mid-morning and overwrote the pre-market snapshot. And every
+delivered run completes regardless of clock time — an earlier "is it ~8am
+ET?" guard rejected nearly every late run and the site silently stopped
+updating.
 
 To trigger a rebuild manually: **Actions → Update dashboard and deploy to
 GitHub Pages → Run workflow** on GitHub, or `gh workflow run update-site.yml`.
