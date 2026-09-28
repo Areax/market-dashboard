@@ -91,11 +91,14 @@ def _fetch_range(page, start, end):
             continue
         seen.add(key)
         unique_rows.append(r)
+    # keep the top N by market cap, then sort those for display: date, then symbol
     unique_rows.sort(key=lambda r: -_cap_to_number(r["market_cap"]))
+    top_rows = unique_rows[:TOP_N_PER_RANGE]
+    top_rows.sort(key=lambda r: (r["date"], r["symbol"]))
 
     return {
         "range": f"{start.strftime('%b %-d')} - {end.strftime('%b %-d')}",
-        "companies": unique_rows[:TOP_N_PER_RANGE],
+        "companies": top_rows,
     }
 
 
