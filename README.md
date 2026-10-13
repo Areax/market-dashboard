@@ -37,8 +37,9 @@ static `dist/index.html`, and deploys it via GitHub Pages.
 
 GitHub's free scheduler delivers these runs several hours late in practice
 (observed 4.5 to 8 hours, not the "a few minutes" its docs describe as
-typical) — a known limitation of the `schedule` trigger. So the cron is set
-to 06:00 UTC (2am EDT / 1am EST), aiming for actual delivery before ~8am ET.
+typical, ~6h most days and longest on Mondays) — a known limitation of the
+`schedule` trigger. So the cron is set to 04:00 UTC (midnight EDT / 11pm
+EST the evening before), aiming for actual delivery before ~8am ET.
 It's a single entry on purpose: an earlier DST-paired second entry ran
 again mid-morning and overwrote the pre-market snapshot. And every
 delivered run completes regardless of clock time — an earlier "is it ~8am

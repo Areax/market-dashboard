@@ -1,19 +1,24 @@
 name: Update dashboard and deploy to GitHub Pages
 
 on:
-  # GitHub's free scheduler delivers these runs 4-6+ hours late in practice
-  # (observed: 4h33m to 7h55m), so the cron is set far ahead of the real
-  # ~8am ET target. One entry only: with delays this large, matching ET
-  # exactly across daylight saving doesn't matter, and a second DST-paired
-  # entry would run again later and overwrite the morning snapshot with
-  # mid-session data. 06:00 UTC is 2am EDT / 1am EST.
+  # GitHub's free scheduler delivers these runs hours late in practice
+  # (observed 4.5h to 7.5h, ~6h typical, longest on Mondays), so the cron
+  # is set far ahead of the real ~8am ET target. One entry only: with
+  # delays this large, matching ET exactly across daylight saving doesn't
+  # matter, and a second DST-paired entry would run again later and
+  # overwrite the morning snapshot with mid-session data.
+  #
+  # 04:00 UTC = midnight EDT / 11pm EST the evening before. Even a 7.5h
+  # delay lands by ~7:30am ET; if GitHub ever runs it on time, it just
+  # picks up the prior session's close, which is still the right data for
+  # the next morning.
   #
   # Every delivered run completes regardless of clock time - an earlier
   # "is it ~8am ET?" guard rejected nearly every late-delivered run and the
   # site silently stopped updating. If delivery times (each run's start
-  # time on the Actions tab) drift past ~8am ET, move this earlier.
+  # time on the Actions tab) drift past ~8am ET again, move this earlier.
   schedule:
-    - cron: "0 6 * * 1-5"
+    - cron: "0 4 * * 1-5"
   workflow_dispatch: {}
 
 permissions:
