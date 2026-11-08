@@ -5,7 +5,7 @@ you rerun the script often).
 import sys
 import time
 
-from fetchers import briefing, econ_calendar, earnings_calendar, fear_greed, fedwatch, heatmap, vix
+from fetchers import briefing, econ_calendar, earnings_calendar, fear_greed, fedwatch, heatmap, sector_signals, vix
 from fetchers.cache_utils import is_fresh, retry
 
 # (module, cache path attr, ttl seconds)
@@ -17,6 +17,7 @@ SOURCES = [
     ("Econ calendar (PPI/CPI)", econ_calendar, econ_calendar.CACHE_PATH, 6 * 3600),
     ("Earnings calendar", earnings_calendar, earnings_calendar.CACHE_PATH, 6 * 3600),
     ("Briefing.com", briefing, briefing.CACHE_PATH, 15 * 60),
+    ("Sector signals + event study", sector_signals, sector_signals.CACHE_PATH, 6 * 3600),
 ]
 
 

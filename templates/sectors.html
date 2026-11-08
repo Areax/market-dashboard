@@ -1,0 +1,364 @@
+{%- macro pct(v, digits=1, colored=True) -%}
+{%- if v is none -%}<span class="muted">-</span>
+{%- elif ('%.' ~ digits ~ 'f') % (v * 100)|abs == ('%.' ~ digits ~ 'f') % 0 -%}<span class="muted">{{ ('%.' ~ digits ~ 'f%%') % 0 }}</span>
+{%- else -%}<span class="{{ ('pct-up' if v > 0 else 'pct-down' if v < 0 else '') if colored else 'muted' }}">{{ ('%+.' ~ digits ~ 'f%%') % (v * 100) }}</span>
+{%- endif -%}
+{%- endmacro -%}
+{%- macro found_list(items) -%}
+{%- for it in items -%}{{ it.label }} ({{ it.horizons|join(' & ') }} days){{ ', ' if not loop.last }}{%- endfor -%}
+{%- endmacro -%}
+{%- macro check(v) -%}{% if v %}<span class="pct-up">&#10003;</span>{% else %}<span class="muted">&ndash;</span>{% endif %}{%- endmacro -%}
+{%- macro regime_badge(r) -%}
+{%- if r is none or r.score is none -%}<span class="score score-na">?</span>
+{%- else -%}<span class="score score-{{ r.score }}" title="{{ r.score }} of 3 trend rules on, as of {{ r.as_of }}">{{ r.score }}/3</span>
+{%- endif -%}
+{%- endmacro -%}
+{%- set verdict_text = {
+  'works': ('Real edge', 'pct-up'),
+  'reverses': ('Works backwards', 'pct-down'),
+  'too_small': ('Real, but too small to cover costs', 'hint'),
+  'hint_works': ('Weak hint it works (likely chance)', 'hint'),
+  'hint_backwards': ('Weak hint it backfires (likely chance)', 'hint'),
+  'none': ('No detectable edge', 'muted'),
+  'too_few': ('Too few firings to judge', 'muted'),
+} -%}
+{%- set groups = [
+  ('research', 'Research-style signals', 'Widely used trend and breakout rules whose broad idea has published evidence (trend following, stocks near their 52-week high). These exact versions come from practitioners, such as Mark Minervini\'s trend template, not from the studies themselves. Even the studied versions give a small edge at best on single stocks.'),
+  ('yours', 'Your signals', 'The chart patterns and candle rules you asked for. There\'s no solid published evidence that they make money after costs, so the event study is the test that counts.'),
+] -%}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sector Signals</title>
+<style>
+{% include "_base_styles.html" %}
+  [hidden] { display: none !important; }
+  .muted { color: var(--muted); }
+  .sig.dim { opacity: 0.7; }
+  .sig .g { font-size: 10px; font-weight: 700; color: var(--muted); margin-right: 3px; }
+  .card h2 { flex-wrap: wrap; gap: 8px; }
+  .hint { color: #e3b341; }
+  .intro { color: var(--muted); font-size: 13px; line-height: 1.55; max-width: 980px; margin: 0 0 16px; }
+  .bottom-line { font-size: 15px; line-height: 1.5; margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); }
+  .score { display: inline-block; min-width: 34px; text-align: center; padding: 2px 6px; border-radius: 5px; font-weight: 700; font-size: 12px; }
+  .score-3 { background: rgba(46, 160, 67, 0.35); color: #b7f0c4; }
+  .score-2 { background: rgba(46, 160, 67, 0.15); color: #b7f0c4; }
+  .score-1 { background: rgba(248, 81, 73, 0.18); color: #ffc1bf; }
+  .score-0 { background: rgba(248, 81, 73, 0.38); color: #ffc1bf; }
+  .score-na { background: var(--border); color: var(--muted); }
+  .sig { display: inline-block; font-size: 11px; padding: 2px 6px; border-radius: 5px; margin: 1px 4px 1px 0; white-space: nowrap; background: rgba(255, 255, 255, 0.05); color: var(--text); border: 1px solid; }
+  .sig.research { border-color: #58a6ff; }
+  .sig.yours { border-color: var(--muted); border-style: dashed; }
+  .sig .up { color: var(--green); }
+  .sig .down { color: var(--red); }
+  .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
+  .tag.research { border: 1px solid #58a6ff; color: #cfe5ff; }
+  .tag.yours { border: 1px dashed var(--muted); color: var(--muted); }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  tr.group-head td { background: rgba(255, 255, 255, 0.03); padding-top: 10px; }
+  tr.group-head b { font-size: 13px; }
+  tr.works td { background: rgba(46, 160, 67, 0.12); }
+  tr.reverses td { background: rgba(248, 81, 73, 0.12); }
+  td.verdict { font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .group-title { font-size: 11px; padding: 2px 8px; }
+  .sector-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(620px, 1fr)); gap: 16px; }
+  .sector { min-width: 0; }
+  @media (max-width: 700px) {
+    .sector-grid { grid-template-columns: minmax(0, 1fr); }
+    .hide-sm { display: none; }
+    td.signals { min-width: 120px; }
+    td.verdict { white-space: normal; min-width: 80px; }
+    td.num, th.num { padding-left: 4px; padding-right: 4px; }
+  }
+  td.signals { min-width: 150px; }
+  .filters { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .defs h3 { font-size: 14px; margin: 16px 0 4px; }
+  .defs h3:first-child { margin-top: 0; }
+  .defs dt { font-weight: 600; margin-top: 10px; font-size: 13px; }
+  .defs dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  ul.caveats { color: var(--muted); font-size: 12.5px; line-height: 1.55; padding-left: 18px; margin: 10px 0 0; }
+  details.method { margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+  details.method summary { cursor: pointer; color: var(--accent); }
+  .new-tag { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+</style>
+</head>
+<body>
+
+<nav class="tabs"><a href="index.html">Overview</a><a href="sectors.html" class="active">Sectors</a></nav>
+
+<header>
+  <div>
+    <h1>Sector Signals</h1>
+    <div class="meta">
+      {% if data.last_bar %}Signals from the session that closed {{ data.last_bar }} &middot; built <span id="builtAt" data-ts="{{ data.as_of }}"></span>{% else %}No data yet{% if not is_static %} &mdash; run <code>python refresh_all.py</code>{% endif %}.{% endif %}
+    </div>
+    {% if is_static %}<div class="meta">Updates together with the Overview tab on weekday mornings &middot;
+      <a href="https://github.com/Areax/market-dashboard" target="_blank">Source on GitHub</a></div>{% endif %}
+  </div>
+</header>
+
+{% if data.sectors %}
+{% set sig_meta = {} %}
+{% for row in data.signals %}{% set _ = sig_meta.update({row.key: row}) %}{% endfor %}
+{% set study = data.study %}
+{% set study_rows = {} %}
+{% if study %}{% for row in study.rows %}{% set _ = study_rows.update({row.key: row}) %}{% endfor %}{% endif %}
+
+<p class="intro">
+  The 11 SPDR sector ETFs and each one's top 10 holdings. The <b>sector regime</b> table comes first: it's the best-supported
+  use of indicators: slow trend rules on a whole index, checked monthly. Historically they cut big drawdowns but didn't
+  raise returns. Next, the <b>event study</b> tests every stock signal on these same stocks{% if study %} over the
+  last {{ '%g' % study.years }} years{% endif %}, so you can judge each one by its result, not its name. Last, the
+  <b>holdings</b> show which signals fired recently. Signals come in two groups:
+  <span class="tag research">Research-style</span> and <span class="tag yours">Your signals</span>.
+</p>
+
+<div class="grid">
+
+  <div class="card full">
+    <h2>Sector regime <span class="meta" style="text-transform:none; font-weight:400;">0-3 trend rules on, last completed month-end</span></h2>
+    <div class="scroll-x">
+    <table>
+      <tr><th>ETF</th><th>Sector</th><th>Score</th><th class="hide-sm">Above 10-mo avg</th><th class="hide-sm">Above 200-day avg</th>
+        <th class="num">12-mo return</th><th class="num hide-sm">1-mo return</th><th class="hide-sm">As of</th></tr>
+      {% set regime_rows = [{'etf': 'SPY', 'name': 'S&P 500 (benchmark)', 'regime': data.benchmark_regime}] + data.sectors %}
+      {% for s in regime_rows %}{% set r = s.regime %}
+      <tr>
+        <td><b>{{ s.etf }}</b></td><td>{{ s.name }}</td><td>{{ regime_badge(r) }}</td>
+        {% if r.score is not none %}
+        <td class="hide-sm">{{ check(r.above_10m) }}</td><td class="hide-sm">{{ check(r.above_200d) }}</td>
+        <td class="num">{{ pct(r.ret_12m) }}</td><td class="num hide-sm">{{ pct(r.ret_1m) }}</td><td class="muted hide-sm">{{ r.as_of }}</td>
+        {% else %}<td colspan="5" class="muted">not enough history</td>{% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    <p class="sub-stat">The score counts three rules at the last month-end: price above its 10-month average, price above its
+      200-day average, and a positive 12-month return. 3 means the trend is intact; 0 means it's broken. The research uses
+      it to decide how much to hold in that sector for the next month, not to pick stocks.</p>
+  </div>
+
+  <div class="card full">
+    <h2>Event study: did each signal work on these stocks?
+      {% if study %}<span>
+        {% for h in study.horizons %}<button class="toggle-btn{{ ' active' if h == 20 }}" data-h="{{ h }}" onclick="showHorizon({{ h }})">{{ h }} days</button> {% endfor %}
+      </span>{% endif %}
+    </h2>
+    {% if not study %}
+    <p class="sub-stat">The event study was skipped this time{% if data.study_skipped %} ({{ data.study_skipped }}){% endif %}, so it
+      isn't run on a partial set of stocks. It retries on the next update.</p>
+    {% else %}
+    {% set sm = study.summary %}
+    <p class="bottom-line">
+      <b>Bottom line:</b> {{ sm.works|length }} of {{ sm.n_signals }} signals showed a reliable edge at any horizon
+      ({{ study.horizons|join(', ') }} trading days){% if sm.works %}: {{ found_list(sm.works) }}{% endif %}.
+      {% if sm.reverses %} Reliably did the <i>opposite</i> of what it predicts: {{ found_list(sm.reverses) }}.{% endif %}
+      {% if sm.too_small %} Real but too small to cover trading costs: {{ found_list(sm.too_small) }}.{% endif %}
+      {% if sm.hint_works %} {{ 'Weak hint' if sm.hint_works|length == 1 else 'Weak hints' }} it might work, probably chance: {{ found_list(sm.hint_works) }}.{% endif %}
+      {% if sm.hint_backwards %} {{ 'Weak hint' if sm.hint_backwards|length == 1 else 'Weak hints' }} of the opposite of what it predicts, probably chance: {{ found_list(sm.hint_backwards) }}.{% endif %}
+      {% if not (sm.works or sm.reverses or sm.too_small or sm.hint_works or sm.hint_backwards) %} None showed even a weak hint either way.{% endif %}
+    </p>
+    <p class="sub-stat" style="margin-bottom:10px;">
+      How it's tested: every firing from {{ study.start }} to {{ study.end }} across {{ study.n_stocks }} companies. Buy at the
+      next day's open (or short, for signals that expect a drop), hold for the chosen number of trading days, compare with SPY
+      over the same days, and subtract a {{ '%.1f' % (study.cost * 100) }}% round-trip cost: that's <b>Net vs SPY</b>. Compare it
+      with the "Hold any stock" row, since these stocks rose over the period. <b>Edge</b> asks the sharper question: did the signal
+      beat the same signal fired on random other dates? 0 means no better than luck. It's before costs, so it needs to clear
+      about {{ '%.1f' % (study.cost * 100) }}% to pay for itself. Positive edge means the signal helped, for both rise and drop signals.
+    </p>
+    <div class="scroll-x">
+    <table>
+      <tr><th>Signal</th><th>Verdict</th><th class="hide-sm">Expects</th><th class="num hide-sm">Firings</th>
+        <th class="num hide-sm" title="Average return vs SPY in the signal's direction, after costs. Firings on the same day are averaged together first.">Net vs SPY</th>
+        <th class="num" title="How much better the signal did than the same signal fired on random other dates, before trading costs. 0 = no better than luck.">Edge<span class="hide-sm"> (pre-cost)</span></th>
+        <th class="num" title="How far outside luck the result lands. 3 or more (or -3 or less) beats almost every random-date run.">Luck<span class="hide-sm"> score</span></th>
+        <th class="num hide-sm" title="Share of individual firings with a positive net result">Win rate</th></tr>
+      {% for h in study.horizons %}
+      {% set base = study.baseline[h|string] %}
+      <tbody data-h="{{ h }}"{% if h != 20 %} hidden{% endif %}>
+        {% for gkey, gtitle, _ in groups %}
+        <tr class="group-head"><td colspan="8"><span class="tag group-title {{ gkey }}">{{ gtitle }}</span></td></tr>
+        {% for row in study.rows if row.group == gkey %}{% set st = row.horizons[h|string] %}
+        {% set v = st.verdict if st else 'too_few' %}
+        <tr class="{{ v if v in ('works', 'reverses') }}">
+          <td>{{ row.label }}</td>
+          <td class="verdict"><span class="{{ verdict_text[v][1] }}">{{ verdict_text[v][0] }}</span></td>
+          <td class="hide-sm">{{ 'Rise' if row.direction > 0 else 'Drop' }}</td>
+          {% if st %}
+          <td class="num hide-sm">{{ '{:,}'.format(st.n) }}</td><td class="num hide-sm">{{ pct(st.net, 2, colored=False) }}</td>
+          <td class="num">{{ pct(st.edge, 2, colored=(v in ('works', 'reverses'))) }}</td>
+          <td class="num">{{ '-' if st.score is none else ('0.0' if st.score|abs < 0.05 else '%+.1f' % st.score) }}</td><td class="num hide-sm">{{ '%.0f%%' % (st.hit_rate * 100) }}</td>
+          {% else %}<td class="num hide-sm">0</td><td colspan="4" class="muted">never fired in this window</td>{% endif %}
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        <tr class="group-head hide-sm"><td colspan="8"><b>For comparison: any stock, any day</b></td></tr>
+        <tr class="hide-sm"><td class="muted">Hold any stock</td><td></td><td class="hide-sm">Rise</td><td class="num muted hide-sm">{{ '{:,}'.format(base.bull.n) }}</td>
+          <td class="num">{{ pct(base.bull.net, 2, colored=False) }}</td><td class="num muted">0.00%</td><td></td><td class="hide-sm"></td></tr>
+        <tr class="hide-sm"><td class="muted">Short any stock</td><td></td><td class="hide-sm">Drop</td><td class="num muted hide-sm">{{ '{:,}'.format(base.bear.n) }}</td>
+          <td class="num">{{ pct(base.bear.net, 2, colored=False) }}</td><td class="num muted">0.00%</td><td></td><td class="hide-sm"></td></tr>
+      </tbody>
+      {% endfor %}
+    </table>
+    </div>
+    <ul class="caveats">
+      <li><b>Drop signals:</b> these stocks mostly rose over this period, so shorting usually lost money ("Net vs SPY" is
+        negative). A positive edge on a drop signal only means it lost less than shorting at a random time.</li>
+      {% set n_tests = study.rows|length * study.horizons|length %}
+      <li><b>Verdicts:</b> every signal is re-run with its firing dates shifted to each other point in the window (hundreds of
+        "placebo" runs). "Real edge" means the real result beat almost all of them (luck score of about 3 or more) <i>and</i> the edge
+        clears trading costs; "Works backwards" means it was beaten by almost all of them. With {{ study.rows|length }} signals &times;
+        {{ study.horizons|length }} horizons = {{ n_tests }} tests, a luck score around 2 turns up by chance, so those are only
+        "weak hints". A signal needs at least {{ study.min_dates }} firing days spread over {{ study.min_windows }} separate periods
+        to get any verdict. "No detectable edge" means the test couldn't tell it from luck, not that it can never work.</li>
+      <li><b>Today's winners:</b> these are <i>today's</i> top holdings, partly because they rose. Edge removes each stock's usual
+        return, which handles most of that bias but not all of it: stocks that fell out of the top 10 aren't tested at all.</li>
+    </ul>
+    <details class="method">
+      <summary>Statistical details</summary>
+      Firings on the same day are averaged first, because correlated stocks moving together aren't independent bets. Each run's
+      t-stat uses a Newey-West-style correction for overlapping holding periods. Placebo runs shift all of a signal's firing dates
+      together by every allowed number of trading days, wrapping around the window, which keeps the real bunching of firings.
+      Shifts close to the signal's own setup period are skipped (60 days, or 260 for the trend template and 52-week breakout),
+      because a placebo landing on the run-up a signal is built from would look unfairly good. The luck score is the placebo
+      p-value converted to a z-score. Costs are a flat {{ '%.1f' % (study.cost * 100) }}% round trip; short borrow fees and taxes
+      aren't modeled. A second share class (e.g. GOOG next to GOOGL) is left out of the study so one company isn't counted twice.
+      Prices are dividend-adjusted, so 52-week highs and pattern levels can differ slightly from what a chart showed at the time.
+    </details>
+    {% endif %}
+  </div>
+
+</div>
+
+<div class="card full" style="margin-bottom:16px;">
+  <h2>Holdings and recent signals <span class="meta" style="text-transform:none; font-weight:400;">signals that fired in the last 5 trading days</span></h2>
+  <div class="filters">
+    <label><input type="checkbox" id="onlyRecent" onchange="applyFilters()"> Only stocks with a recent signal</label>
+    <label><input type="checkbox" id="researchOnly" onchange="applyFilters()"> Research-style signals only</label>
+  </div>
+  <p class="sub-stat" style="margin:-4px 0 12px;">
+    Badges: <span class="sig research"><b class="g">R</b>solid = research-style</span><span class="sig yours"><b class="g">Y</b>dashed = your signal</span>
+    &#9650; expects a rise, &#9660; expects a drop.
+    {% if study and not study.summary.works %}<b>None of these signals has shown a reliable edge so far</b>, so treat badges as things to look at, not trades.{% endif %}
+  </p>
+  <div class="sector-grid">
+  {% for s in data.sectors %}
+    <div class="sector">
+      <div class="day-heading" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <span>{{ s.etf }} &middot; {{ s.name }}{% if s.holdings_source in ('stale', 'seed') %} <span class="muted" style="font-weight:400;">(older holdings list; today's fetch failed)</span>{% endif %}</span>{{ regime_badge(s.regime) }}
+      </div>
+      {% if not s.stocks %}<p class="sub-stat">Holdings unavailable.</p>{% else %}
+      <div class="scroll-x">
+      <table>
+        <tr><th>Symbol</th><th>Recent signals</th><th class="num hide-sm">Weight</th><th class="num hide-sm">Close</th><th class="num">Chg</th>
+          <th class="hide-sm">Trend</th><th class="num hide-sm">RS</th><th class="num hide-sm">From high</th>
+          <th class="num hide-sm">10-ATR stop</th></tr>
+        {% for st in s.stocks %}
+        <tr class="stock-row">
+          <td title="{{ st.name }}"><b>{{ st.symbol }}</b>{% if st.short_history %}<span class="new-tag" title="Less than a year of price history, so long-term columns are blank">new</span>{% endif %}</td>
+          {% if st.missing %}
+          <td colspan="8" class="muted">price data unavailable</td>
+          {% else %}
+          <td class="signals">
+            {% if st.stale_since %}<span class="muted">prices stopped updating {{ st.stale_since }}</span>{% endif %}
+            {% for ev in st.recent %}{% set m = sig_meta[ev.key] %}{% set sr = study_rows.get(ev.key) %}{% set e20 = sr.horizons['20'] if sr else none %}
+            {% set has_result = sr and (sr.horizons.values()|selectattr('verdict', 'defined')|rejectattr('verdict', 'in', ['none', 'too_few'])|list) %}
+            <span class="sig {{ m.group }}{{ '' if has_result else ' dim' }}" data-group="{{ m.group }}"
+              title="{{ m.label }} on {{ ev.date }} ({{ 'research-style' if m.group == 'research' else 'your signal' }}). Event study, 20 days: {{ 'no result' if not e20 else verdict_text[e20.verdict][0] ~ ('' if e20.edge is none else ' (edge %+.2f%%)' % (e20.edge * 100)) }}"><b class="g">{{ 'R' if m.group == 'research' else 'Y' }}</b><span class="{{ 'up' if m.direction > 0 else 'down' }}">{{ '&#9650;'|safe if m.direction > 0 else '&#9660;'|safe }}</span> {{ m.short }} &middot; {{ ev.date[5:] }}{% set notable = [] %}{% if sr %}{% for hk, hv in sr.horizons.items() if hv and hv.verdict not in ('none', 'too_few') %}{% set _ = notable.append(verdict_text[hv.verdict][0] ~ ', ' ~ hk ~ 'd') %}{% endfor %}{% endif %}{% if notable %} <span class="hint">&middot; study: {{ notable[0] }}</span>{% endif %}</span>
+            {% endfor %}
+          </td>
+          <td class="num hide-sm">{{ '-' if st.weight is none or st.weight != st.weight else '%.1f%%' % (st.weight * 100) }}</td>
+          <td class="num hide-sm">{{ '%.2f' % st.close }}</td><td class="num">{{ pct(st.chg_pct, 2) }}</td>
+          <td class="hide-sm">{{ check(st.trend_template) }}</td>
+          <td class="num hide-sm">{{ '-' if st.rs_pct is none else '%.0f' % (st.rs_pct * 100) }}</td>
+          <td class="num hide-sm">{{ pct(st.pct_from_high) }}</td>
+          <td class="num hide-sm">{{ '-' if st.stop_10atr is none else '%.2f' % st.stop_10atr }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </table>
+      </div>
+      <p class="sub-stat empty-note" hidden>No matching signals in this sector.</p>
+      {% endif %}
+    </div>
+  {% endfor %}
+  </div>
+</div>
+
+<div class="card full">
+  <h2>Definitions</h2>
+  <div class="defs">
+    {% for gkey, gtitle, gdesc in groups %}
+    <h3>{{ gtitle }}</h3>
+    <p class="sub-stat">{{ gdesc }}</p>
+    <dl>
+      {% for row in data.signals if row.group == gkey %}
+      <dt>{{ row.label }} &middot; <span class="muted">expects a {{ 'rise' if row.direction > 0 else 'drop' }} &middot; badge: <span class="sig {{ row.group }}" style="font-weight:400;">{{ row.short }}</span></span></dt>
+      <dd>{% if row.plain %}<span style="color:var(--text);">{{ row.plain }}</span><br>{% endif %}Exact rule: {{ row.definition }}</dd>
+      {% endfor %}
+    </dl>
+    {% endfor %}
+    <h3>Reading the event study</h3>
+    <dl>
+      <dt>Net vs SPY</dt><dd>What trading the signal earned compared with simply holding SPY over the same days, after a
+        {{ '%.1f' % ((study.cost if study else 0.002) * 100) }}% round-trip cost. Firings on the same day are averaged together first.</dd>
+      <dt>Edge (pre-cost)</dt><dd>Net vs SPY with what every stock here did on those same days and what that particular stock
+        usually did taken out, then compared with the same signal on random other dates. What's left is the signal's timing:
+        0 = no better than luck. It's before costs.</dd>
+      <dt>Luck score</dt><dd>How far the real result lands outside the placebo runs (the same signal on random other dates).
+        Near 0 = indistinguishable from luck; 3 or more (or &minus;3 or less) = beat (or lost to) almost every placebo run. With this
+        many tests, scores around 2 still show up by chance now and then. Because both are measured against the placebo, a tiny
+        edge and a tiny score can occasionally point in different directions; both mean "nothing there".</dd>
+      <dt>Win rate</dt><dd>The share of individual firings that came out ahead after costs.</dd>
+    </dl>
+    <h3>Holdings columns</h3>
+    <dl>
+      <dt>Weight</dt><dd>The stock's share of the sector ETF.</dd>
+      <dt>Trend</dt><dd>&#10003; when every condition of the trend template (above) holds today; &ndash; when any one doesn't. Most stocks are &ndash; most of the time, and that's normal.</dd>
+      <dt>RS (relative strength)</dt><dd>Where the stock's 12-month return ranks among these companies, 0-100. 80 means it beat 80% of them.</dd>
+      <dt>From high</dt><dd>How far the price is below its highest point of the past year.</dd>
+      <dt>10-ATR stop</dt><dd>Today's price minus 10 times the average daily price range over the last 14 days (ATR). It's the
+        starting stop-loss level used in the breakout research. Blank for very volatile stocks, where it would fall to zero or below.</dd>
+      <dt>Moving averages</dt><dd>"10-month avg" / "200-day avg" are the plain average closing price over that span. The 21-day line
+        in your candle signals is an exponential average, which weights recent days more.</dd>
+    </dl>
+  </div>
+  <p class="sub-stat">All signals use completed trading days only, never the day still in progress. A chart-pattern turning point
+    counts only once 5 more days confirm it. Prices are adjusted for splits and dividends. Data: Yahoo Finance.</p>
+</div>
+{% endif %}
+
+<script>
+(function () {
+  const el = document.getElementById('builtAt');
+  if (el) el.textContent = new Date(Number(el.dataset.ts) * 1000).toLocaleString();
+})();
+
+function showHorizon(h) {
+  document.querySelectorAll('tbody[data-h]').forEach(tb => { tb.hidden = Number(tb.dataset.h) !== h; });
+  document.querySelectorAll('button[data-h]').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === h));
+}
+
+function applyFilters() {
+  const onlyRecent = document.getElementById('onlyRecent').checked;
+  const researchOnly = document.getElementById('researchOnly').checked;
+  document.querySelectorAll('td.signals .sig').forEach(b => { b.hidden = researchOnly && b.dataset.group !== 'research'; });
+  document.querySelectorAll('.sector').forEach(sec => {
+    let shown = 0;
+    sec.querySelectorAll('.stock-row').forEach(tr => {
+      const visible = [...tr.querySelectorAll('td.signals .sig')].filter(b => !b.hidden).length;
+      tr.hidden = onlyRecent && visible === 0;
+      if (!tr.hidden) shown++;
+    });
+    const table = sec.querySelector('table');
+    const note = sec.querySelector('.empty-note');
+    if (table) table.hidden = shown === 0;
+    if (note) note.hidden = shown !== 0;
+  });
+}
+</script>
+
+</body>
+</html>

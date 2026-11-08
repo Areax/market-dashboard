@@ -52,9 +52,21 @@ def build_context(is_static=False):
     )
 
 
+def build_sectors_context(is_static=False):
+    return {"data": _load("sector_signals.json", {}), "is_static": is_static}
+
+
+# Tabs link with relative "index.html" / "sectors.html" so the same links
+# work on GitHub Pages (static files) and on this dev server.
 @app.route("/")
+@app.route("/index.html")
 def dashboard():
     return render_template("dashboard.html", **build_context(is_static=False))
+
+
+@app.route("/sectors.html")
+def sectors():
+    return render_template("sectors.html", **build_sectors_context(is_static=False))
 
 
 @app.route("/refresh", methods=["POST"])

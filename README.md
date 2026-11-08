@@ -29,6 +29,59 @@ in the page itself instead of restarting the script.
 | Earnings calendar | Yahoo Finance | Top ~60 companies by market cap reporting that week, toggle between next week and last week, actual report date shown per company |
 | Briefing.com | Briefing.com homepage | Only the 2 free "Latest Comments" headlines are public; the rest is subscriber-only |
 
+## Sectors tab
+
+`sectors.html` covers the 11 SPDR sector ETFs and each one's top 10 holdings
+(Yahoo Finance fund data, refreshed weekly). Built in `fetchers/indicators.py`
+(math), `fetchers/signals.py` (signal detection) and
+`fetchers/sector_signals.py` (data, regime, event study).
+
+- **Regime:** per ETF, how many of three slow trend rules are on at the last
+  completed month-end: close above its 10-month SMA, close above its 200-day
+  SMA, positive 12-month return. This is the best-supported use of indicators
+  in the research: it historically cut drawdowns, not raised returns.
+- **Signals**, in two groups:
+  - *Research-style:* Minervini trend-template entry and 52-week-high
+    breakout on 2x volume. The broad ideas (trend following, stocks near
+    their 52-week high) have published evidence; these exact versions come
+    from practitioners.
+  - *Your signals:* chart-pattern/candle rules with no solid published
+    evidence: double top/bottom, head & shoulders and inverse, bull/bear gap
+    retest, first red candle above the 21 EMA, and green candle below it.
+  - Plain-English summaries and exact definitions are on the page.
+- **Event study:** every firing over the last ~5 years (after a one-year
+  warm-up), entered at the next session's open, held 5/20/60 sessions,
+  measured vs SPY after a 0.2% round-trip cost ("net"). "Edge" removes what
+  all these stocks did on the same days and each stock's own average, then
+  is centred on placebo runs, so 0 = no better than luck.
+  - **Placebo calibration:** every signal is re-run with all of its firing
+    dates shifted together by each allowed number of sessions (wrapping
+    around the window). This keeps the real bunching of firings, which a
+    plain Newey-West t-stat underestimates. Shifts close to the signal's own
+    setup period are skipped (60 sessions; 260 for the trend template and
+    breakout). Otherwise a placebo can land on the very run-up the signal is
+    built from, which made earlier versions blind to real edges.
+  - **Verdicts:** the placebo p-value sets the verdict. "Real edge" needs
+    p <= 0.0027 (|z| >= 3, Harvey & Liu's bar) and an edge above costs.
+    "Weak hint" means p <= 0.05; with 30 tests, expect those by chance. A
+    verdict also needs >= 30 firing days over >= 10 separate periods.
+  - **Universe bias:** the universe is today's top holdings, so raw returns
+    carry survivorship bias; the per-stock adjustment handles most of it.
+  - **Share classes:** GOOG is left out next to GOOGL.
+
+Correctness rules the code follows:
+- Signals use completed daily bars only (an in-progress session bar is
+  dropped).
+- Corrupt bars (non-positive prices, high below low) are dropped.
+- Chart-pattern swing points count only after 5 confirming bars.
+- Indicator warm-up stays NaN rather than backfilled.
+- EMA/ATR follow TA-Lib's seeding conventions.
+
+`tests/test_sector_signals.py` checks these offline (look-ahead truncation,
+indicator references, placebo calibration on a null world and a planted
+edge, regime timing, holdings fallbacks, download coverage, page render).
+CI runs it before every deploy: `python -m unittest discover -s tests -t .`
+
 ## GitHub Pages deployment
 
 `.github/workflows/update-site.yml` runs once per weekday and can also be
