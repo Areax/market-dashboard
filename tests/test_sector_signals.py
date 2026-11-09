@@ -57,6 +57,52 @@ class NoLookAhead(unittest.TestCase):
             pd.testing.assert_frame_equal(full_feat.iloc[:cut], feat, check_freq=False)
 
 
+class ResearchSignals(unittest.TestCase):
+    def test_new_signals_fire_without_look_ahead(self):
+        df = synthetic_ohlcv(seed=9, drift=0.0015)
+        n = len(df)
+        mom = pd.Series(np.clip(0.5 + 0.45 * np.sin(np.arange(n) / 70), 0, 1), index=df.index)
+        rev = pd.Series(np.clip(0.5 + 0.45 * np.cos(np.arange(n) / 25), 0, 1), index=df.index)
+        rs = pd.Series(0.5, index=df.index)
+        earnings = [{"ts": (df.index[i] + pd.Timedelta(hours=16)).isoformat(), "surprise": 0.05 * (1 if i % 2 else -1)}
+                    for i in range(300, n - 1, 63)]
+        full_feat, full = compute(df, rs, mom, rev, earnings)
+        for key in ("momentum_12_1", "near_52w_high", "reversal_1m"):
+            self.assertTrue(full[key], key)
+        self.assertTrue(full["earnings_beat"] or full["earnings_miss"])
+        for cut in (600, 1000, 1499):
+            _, part = compute(df.iloc[:cut], rs.iloc[:cut], mom.iloc[:cut], rev.iloc[:cut], earnings)
+            for key in full:
+                self.assertEqual([t for t in full[key] if t < cut], part[key], f"{key} at cut {cut}")
+
+    def test_entries_need_a_reset(self):
+        from fetchers.signals import ENTRY_RESET, _fresh_entries
+        cond = np.zeros(80, bool)
+        cond[30:35] = True       # first entry
+        cond[40] = True          # too soon after the last one: ignored
+        cond[70] = True          # off for long enough: counts
+        ready = np.ones(80, bool)
+        self.assertEqual(_fresh_entries(cond, ready, ENTRY_RESET), [30, 70] if 70 - 40 > ENTRY_RESET else [30])
+        ready[:25] = False       # inputs not ready right before bar 30
+        self.assertNotIn(30, _fresh_entries(cond, ready, ENTRY_RESET))
+
+    def test_earnings_reaction_session(self):
+        from fetchers.signals import _earnings_events
+        idx = pd.bdate_range("2024-01-01", periods=10)
+        close = np.array([100, 101, 102, 103, 110, 111, 112, 100, 99, 98], float)
+        df = pd.DataFrame({"Close": close}, index=idx)
+        rows = [
+            {"ts": "2024-01-04T16:00:00-05:00", "surprise": 0.10},  # after close Jan 4: reacts Jan 5 (+6.8%)
+            {"ts": "2024-01-10T08:00:00-05:00", "surprise": -0.05},  # before open Jan 10: reacts Jan 10 (-10.7%)
+            {"ts": "2024-01-11T00:00:00-05:00", "surprise": -0.05},  # no time of day: skipped
+            {"ts": "2024-01-02T16:00:00-05:00", "surprise": 0.01},  # surprise too small
+            {"ts": "2024-01-11T16:00:00-05:00", "surprise": 0.10},  # beat but stock fell on Jan 12: no beat signal
+        ]
+        beats, misses = _earnings_events(df, rows, close)
+        self.assertEqual(beats, [4])
+        self.assertEqual(misses, [7])
+
+
 class IndicatorMath(unittest.TestCase):
     """Independent references: pandas' ewm seeded with the first-n SMA (a
     different code path from the loop under test), and Wilder's recursion."""
@@ -185,6 +231,195 @@ class EventStudyStats(unittest.TestCase):
         self.assertEqual(st["verdict"], "works")
 
 
+class FirstCandleAfterCross(unittest.TestCase):
+    def test_one_firing_per_run_above_the_ema(self):
+        from fetchers.signals import _first_against_ema
+        e = np.full(10, 100.0)
+        #        below  cross  green  RED    green  RED    below  cross  RED    red
+        c = np.array([99, 101, 103, 102, 104, 103, 98, 101, 100.5, 100.2])
+        o = np.array([99, 100, 102, 103, 103, 104, 99, 100, 101, 100.6])
+        reds, greens = _first_against_ema(o, c, e)
+        self.assertEqual(reds, [3, 8])   # bar 5 is a later red in the same run
+
+    def test_mirror_below_the_ema(self):
+        from fetchers.signals import _first_against_ema
+        e = np.full(6, 100.0)
+        c = np.array([101, 99, 98, 98.5, 97, 98])
+        o = np.array([101, 100, 99, 98, 98, 97])
+        reds, greens = _first_against_ema(o, c, e)
+        self.assertEqual(greens, [3])
+
+    def test_first_red_candle_far_above_the_ema_ends_the_run(self):
+        from fetchers.signals import _first_against_ema
+        e = np.full(6, 100.0)
+        #             below cross green  RED far  green  RED near
+        c = np.array([99, 101, 104, 104.5, 105, 101.5])
+        o = np.array([99, 100, 102, 105.5, 104, 102.5])
+        l = np.array([98, 99.5, 101.5, 104, 104, 100.8])   # bar 3's low is 4% above; bar 5's is 0.8%
+        h = np.array([100, 102, 105, 106, 106, 103])
+        reds, _ = _first_against_ema(o, c, e, l, h)
+        self.assertEqual(reds, [])       # bar 3 was the first red and too far; bar 5 is a later red
+
+
+class DoubleTop(unittest.TestCase):
+    """Two tops within 1% up to 120 sessions apart; smaller swings between are fine."""
+
+    def series(self, second_top=109.5, bump=104):
+        h = np.full(180, 100.0)
+        h[:60] = np.linspace(90, 105, 60)
+        h[60:71] = np.linspace(105, 110, 11); h[71:90] = np.linspace(110, 100, 19)
+        h[90:100] = np.linspace(100, bump, 10); h[100:110] = np.linspace(bump, 99, 10)
+        h[110:131] = np.linspace(99, second_top, 21); h[131:180] = np.linspace(second_top, 90, 49)
+        return h
+
+    def fires(self, h, kind="top"):
+        from fetchers.signals import _double
+        from fetchers.indicators import swing_points
+        lows = h - 0.5
+        return _double(h, lows, h - 0.25, swing_points(h if kind == "top" else lows, 5, "high" if kind == "top" else "low"), kind)
+
+    def test_long_pattern_with_a_small_swing_between(self):
+        self.assertEqual(self.fires(self.series()), [158])
+
+    def test_higher_peak_between_is_not_a_double_top(self):
+        self.assertEqual(self.fires(self.series(bump=112)), [])
+
+    def test_tops_more_than_one_percent_apart(self):
+        self.assertEqual(self.fires(self.series(second_top=107.5)), [])
+
+    def test_double_bottom_mirror(self):
+        self.assertEqual(self.fires(200 - self.series(), "bottom"), [158])
+
+
+class Engulfing(unittest.TestCase):
+    def test_body_covers_red_candles_wicks_included(self):
+        from fetchers.signals import engulfed_count
+        #        green  red    red    GREEN body 99.5-104 covers both reds' wicks
+        o = np.array([100, 103, 102, 99.5])
+        c = np.array([103, 102, 100, 104])
+        h = np.array([103.5, 103.5, 102.5, 104.5])
+        l = np.array([99.5, 101.5, 99.8, 99.0])
+        self.assertEqual(engulfed_count(o, h, l, c, 3, 1), 2)   # stops at bar 0 (green)
+        self.assertEqual(engulfed_count(o, h, l, c, 3, -1), 0)  # a green candle is never bearish
+
+    def test_wick_covering_is_not_enough(self):
+        from fetchers.signals import engulfed_count
+        # green wicks (99-105) cover the red candle (99.8-104) but its body (99.6-103) doesn't reach 104
+        o = np.array([102, 99.6]); c = np.array([100, 103])
+        h = np.array([104, 105]); l = np.array([99.8, 99.0])
+        self.assertEqual(engulfed_count(o, h, l, c, 1, 1), 0)
+
+    def test_bearish_mirror(self):
+        from fetchers.signals import engulfed_count
+        o = np.array([100, 103.5]); c = np.array([102, 99.5])
+        h = np.array([103, 104]); l = np.array([99.8, 99])
+        self.assertEqual(engulfed_count(o, h, l, c, 1, -1), 1)
+
+
+class TradeSimulation(unittest.TestCase):
+    """Stop-and-target trade: entry on a break of the signal candle's far wick,
+    stop at its opposite wick."""
+
+    def arrays(self, bars):
+        o, h, l, c = (np.array([b[k] for b in bars], float) for k in range(4))
+        return o, h, l, c, np.full(len(bars), 1.0)  # ATR 1: minimum stop 0.5
+
+    def test_long_enters_on_break_of_high_and_hits_target(self):
+        # signal bar 98-101: entry 101 when broken, stop 98 (risk 3), target 104.6
+        bars = [(99, 101, 98, 100), (100, 101.5, 99.5, 101.2), (101.5, 105, 101, 104.8)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual(tr["e"], 1)
+        self.assertAlmostEqual(tr["entry"], 101)
+        self.assertEqual(tr["result"], "target")
+        self.assertAlmostEqual(tr["exit"], 104.6)
+        self.assertAlmostEqual(tr["r"], 1.2)
+
+    def test_gap_through_the_wick_fills_at_open(self):
+        bars = [(99, 101, 98, 100), (102, 102.5, 101.5, 102), (102, 102.2, 101.8, 102)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertAlmostEqual(tr["entry"], 102)
+        self.assertAlmostEqual(tr["stop"], 98)
+
+    def test_waits_up_to_three_sessions(self):
+        bars = [(99, 101, 98, 100), (100, 100.5, 99, 100), (100, 100.8, 99.5, 100), (100.5, 101.3, 100, 101)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual(tr["e"], 3)
+
+    def test_never_breaks_is_no_trade(self):
+        bars = [(99, 101, 98, 100)] + [(100, 100.5, 99, 100)] * 4
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual((tr["result"], tr["why"]), ("skipped", "no_break"))
+
+    def test_stop_level_first_is_no_trade(self):
+        bars = [(99, 101, 98, 100), (99.5, 100, 97.5, 98)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual((tr["result"], tr["why"]), ("skipped", "stop_first"))
+
+    def test_still_waiting_for_the_break(self):
+        bars = [(99, 101, 98, 100), (100, 100.5, 99, 100)]
+        self.assertIsNone(ss._simulate(*self.arrays(bars), 0, 1))
+
+    def test_same_bar_touching_both_counts_as_stop(self):
+        bars = [(99, 101, 98, 100), (100, 101.5, 99.5, 101), (101, 106, 97, 100)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual(tr["result"], "stop")
+        self.assertAlmostEqual(tr["r"], -1.0)
+
+    def test_low_before_the_break_does_not_stop_the_trade(self):
+        # SOLV, Nov 2026: the entry bar opened near its low, dipped below the
+        # stop, then rallied through the entry and closed above the stop
+        bars = [(90.34, 90.50, 85.57, 87.18), (86.45, 93.10, 85.04, 90.38)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1, 10**9)
+        self.assertEqual(tr["result"], "open")
+        self.assertAlmostEqual(tr["entry"], 90.50)
+
+    def test_high_first_bar_reaching_both_counts_the_target(self):
+        # bar 2 opens near its high: up to the target first, then down through the stop
+        bars = [(99, 101, 98, 100), (100, 101.5, 99.5, 101.2), (104, 105, 97, 99)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertEqual(tr["result"], "target")
+
+    def test_short_gap_through_stop_exits_at_open(self):
+        # drop signal 99-102: entry 99 on the break, stop 102 (risk 3)
+        bars = [(101, 102, 99, 100), (100, 100.5, 98.8, 99.5), (105, 106, 104, 105)]
+        tr = ss._simulate(*self.arrays(bars), 0, -1)
+        self.assertAlmostEqual(tr["entry"], 99)
+        self.assertEqual(tr["result"], "stop")
+        self.assertAlmostEqual(tr["exit"], 105)
+        self.assertAlmostEqual(tr["r"], -2.0)
+
+    def test_minimum_stop_distance(self):
+        # candle range 0.2: the stop widens to 0.5 (half the ATR) below entry
+        bars = [(100, 100.1, 99.9, 100), (100, 100.2, 99.95, 100.1), (100.1, 100.15, 99.9, 100)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1)
+        self.assertAlmostEqual(tr["entry"], 100.1)
+        self.assertAlmostEqual(tr["stop"], 99.6)
+        self.assertEqual(tr["result"], "open")
+
+    def test_no_entry_bar_yet(self):
+        self.assertIsNone(ss._simulate(*self.arrays([(99, 101, 98, 100)]), 0, 1))
+
+    def test_ema_order_waits_past_three_days_and_ignores_stop_touch(self):
+        # standing order: dips to the stop level (98) and keeps waiting; fills on day 5
+        bars = [(99, 101, 98, 100), (99.5, 100, 97.5, 98.5), (98.5, 99, 98, 98.6), (98.6, 99.5, 98.2, 99),
+                (99, 100.5, 98.8, 100), (100.5, 101.6, 100.2, 101.4)]
+        tr = ss._simulate(*self.arrays(bars), 0, 1, 10**9)
+        self.assertEqual(tr["e"], 5)
+        self.assertAlmostEqual(tr["entry"], 101)
+
+    def test_ema_order_cancelled_by_opposite_signal(self):
+        bars = [(99, 101, 98, 100)] + [(100, 100.5, 99, 100)] * 4
+        tr = ss._simulate(*self.arrays(bars), 0, 1, 2)
+        self.assertEqual((tr["result"], tr["why"]), ("skipped", "cancelled"))
+
+    def test_cancel_at_finds_next_opposite_signal(self):
+        ev = {"first_red_above_ema21": [3, 20], "green_below_ema21": [10, 30]}
+        self.assertEqual(ss._cancel_at(ev, "first_red_above_ema21", 3), 10)
+        self.assertEqual(ss._cancel_at(ev, "green_below_ema21", 10), 20)
+        self.assertEqual(ss._cancel_at(ev, "green_below_ema21", 30), 10**9)
+        self.assertIsNone(ss._cancel_at(ev, "double_bottom", 3))
+
+
 class Regime(unittest.TestCase):
     def test_uses_last_completed_month(self):
         idx = pd.bdate_range("2023-01-02", "2026-10-30")
@@ -205,6 +440,9 @@ class FetchWithMockedData(unittest.TestCase):
         self.tickers = sorted({r["symbol"] for rows in seed.values() for r in rows})
         self.patches = [
             mock.patch.object(ss, "CACHE_PATH", self.tmp / "sector_signals.json"),
+            mock.patch.object(ss, "CHARTS_PATH", self.tmp / "sector_charts.json"),
+            mock.patch.object(ss, "COMBOS_PATH", self.tmp / "sector_combos.json"),
+            mock.patch.object(ss, "EARNINGS_CACHE_PATH", self.tmp / "earnings.json"),
             mock.patch.object(ss, "HOLDINGS_CACHE_PATH", self.tmp / "holdings.json"),
             mock.patch.object(ss.yf, "Ticker", side_effect=RuntimeError("no network in tests")),
         ]
@@ -229,13 +467,40 @@ class FetchWithMockedData(unittest.TestCase):
         self.assertIsNotNone(data["study"])
         self.assertTrue(all(s["plain"] for s in data["signals"]))
 
+        # Event-study chart lines agree with the table: at day h the path is
+        # "Net vs SPY" plus the cost (both average same-day firings first).
+        study = data["study"]
+        for row in study["rows"]:
+            path = study["paths"]["rows"][row["key"]]
+            for h in study["horizons"]:
+                st = row["horizons"][str(h)]
+                if st:
+                    self.assertAlmostEqual(path[h], st["net"] + ss.ROUND_TRIP_COST, places=5)
+        self.assertAlmostEqual(study["paths"]["baseline"][20],
+                               study["baseline"]["20"]["bull"]["net"] + ss.ROUND_TRIP_COST, places=5)
+        charts = json.loads((self.tmp / "sector_charts.json").read_text())
+        self.assertEqual(len(charts["dates"]), ss.CHART_SESSIONS)
+        self.assertEqual(set(charts["etfs"]), {ss.BENCHMARK, *ss.SECTOR_ETFS})
+        some = next(iter(charts["stocks"].values()))
+        self.assertEqual(len(some["c"]), ss.CHART_SESSIONS)
+        self.assertTrue(any(c["events"] for c in charts["stocks"].values()))
+
         from app import app
+        from fetchers.sector_view import sectors_view
+        combos = json.loads((self.tmp / "sector_combos.json").read_text())
+        self.assertIn("ladder", combos["long"])
+        view = sectors_view(data, combos)
+        ctx = {"data": data, "view": view, "combos": combos, "is_static": True}
         with app.app_context():
-            html = app.jinja_env.get_template("sectors.html").render(data=data, is_static=True)
+            html = app.jinja_env.get_template("sectors.html").render(**ctx)
+            stock_html = app.jinja_env.get_template("stock.html").render(**ctx)
+            combos_html = app.jinja_env.get_template("combos.html").render(**ctx)
+        self.assertIn("Does more agreement help?", combos_html)
         self.assertNotIn("{PATTERN", html)
         self.assertNotIn("{PIVOT", html)
         for sig in SIGNALS:
-            self.assertIn(sig.plain.replace("&", "&amp;"), html)
+            self.assertIn(sig.plain.replace("&", "&amp;").replace("'", "&#39;"), html)
+        self.assertIn('<option value="AAPL">', stock_html)
 
     def test_low_coverage_skips_study_but_keeps_page(self):
         with mock.patch.object(ss, "_download", self._fake_download(keep_share=0.5)):

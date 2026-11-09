@@ -42,6 +42,32 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, n: int = 14) -> pd.Se
     return pd.Series(out, index=close.index)
 
 
+def rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder's RSI, seeded like TA-Lib: the first average gain/loss is the
+    plain mean of the first n changes."""
+    c = close.to_numpy(dtype=float)
+    out = np.full(len(c), np.nan)
+    if len(c) <= n:
+        return pd.Series(out, index=close.index)
+    d = np.diff(c)
+    gain, loss = np.clip(d, 0, None), np.clip(-d, 0, None)
+    ag, al = gain[:n].mean(), loss[:n].mean()
+    for i in range(n, len(c)):
+        if i > n:
+            ag = (ag * (n - 1) + gain[i - 1]) / n
+            al = (al * (n - 1) + loss[i - 1]) / n
+        out[i] = 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
+    return pd.Series(out, index=close.index)
+
+
+def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> tuple[pd.Series, pd.Series]:
+    """MACD line (fast EMA - slow EMA) and its signal line (EMA of the line)."""
+    line = ema(close, fast) - ema(close, slow)
+    ready = line.dropna()
+    sig = ema(ready, signal).reindex(close.index) if len(ready) else line * np.nan
+    return line, sig
+
+
 def swing_points(values: np.ndarray, k: int, kind: str) -> list[int]:
     """Indices of swing highs (kind='high') or lows (kind='low'): the bar is
     the extreme of the 2k+1 bars centred on it. A swing at index i is only

@@ -5,7 +5,8 @@ you rerun the script often).
 import sys
 import time
 
-from fetchers import briefing, econ_calendar, earnings_calendar, fear_greed, fedwatch, heatmap, sector_signals, vix
+from fetchers import (briefing, daily_scan, econ_calendar, earnings_calendar, fear_greed, fedwatch, fundamentals,
+                      heatmap, sector_signals, vix)
 from fetchers.cache_utils import is_fresh, retry
 
 # (module, cache path attr, ttl seconds)
@@ -18,6 +19,9 @@ SOURCES = [
     ("Earnings calendar", earnings_calendar, earnings_calendar.CACHE_PATH, 6 * 3600),
     ("Briefing.com", briefing, briefing.CACHE_PATH, 15 * 60),
     ("Sector signals + event study", sector_signals, sector_signals.CACHE_PATH, 6 * 3600),
+    ("Daily S&P 500 signal scan", daily_scan, daily_scan.CACHE_PATH, 6 * 3600),
+    # after the two above: it reads their stock lists. Each stock is cached a week.
+    ("Debt, cash flow and P/E", fundamentals, fundamentals.CACHE_PATH, 6 * 3600),
 ]
 
 

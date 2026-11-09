@@ -5,7 +5,11 @@ FOMC probabilities, the PPI/CPI economic calendar, and the week's earnings
 calendar.
 
 **Live site:** https://areax.github.io/market-dashboard/ — rebuilt
-automatically on weekday mornings (see below).
+automatically once a day after the US close (see below).
+
+Tabs: Overview (this market snapshot), Sectors, Stock lookup (price charts,
+signal history and the daily S&P 500 signal scan) and Signal combos. The
+same pages also run inside the Contagious Wealth bot's local server.
 
 ## Run it locally
 
@@ -46,9 +50,13 @@ in the page itself instead of restarting the script.
     their 52-week high) have published evidence; these exact versions come
     from practitioners.
   - *Your signals:* chart-pattern/candle rules with no solid published
-    evidence: double top/bottom, head & shoulders and inverse, bull/bear gap
-    retest, first red candle above the 21 EMA, and green candle below it.
+    evidence: double top/bottom, head & shoulders and inverse, first red
+    candle above the 21 EMA, and green candle below it.
   - Plain-English summaries and exact definitions are on the page.
+- **Price gaps (awareness, not signals):** two same-colour candles in a row
+  with a gap of at least 1% between them. The Stock lookup chart rings them
+  and shades the gap until price comes back to fill it, and lists the open
+  ones. The page shows how often past gaps filled within a month and a year.
 - **Event study:** every firing over the last ~5 years (after a one-year
   warm-up), entered at the next session's open, held 5/20/60 sessions,
   measured vs SPY after a 0.2% round-trip cost ("net"). "Edge" removes what
@@ -88,16 +96,11 @@ CI runs it before every deploy: `python -m unittest discover -s tests -t .`
 run manually. It refreshes every data source, renders `build_static.py`'s
 static `dist/index.html`, and deploys it via GitHub Pages.
 
-GitHub's free scheduler delivers these runs several hours late in practice
-(observed 4.5 to 8 hours, not the "a few minutes" its docs describe as
-typical, ~6h most days and longest on Mondays) — a known limitation of the
-`schedule` trigger. So the cron is set to 04:00 UTC (midnight EDT / 11pm
-EST the evening before), aiming for actual delivery before ~8am ET.
-It's a single entry on purpose: an earlier DST-paired second entry ran
-again mid-morning and overwrote the pre-market snapshot. And every
-delivered run completes regardless of clock time — an earlier "is it ~8am
-ET?" guard rejected nearly every late run and the site silently stopped
-updating.
+The cron is 22:00 UTC on weekdays: 5pm EST / 6pm EDT, after the US close,
+so the Sectors, Stock lookup and Signal combos pages always hold the
+day's final bar. GitHub's free scheduler often delivers scheduled runs
+several hours late (4.5 to 8 hours observed); a late run still picks up
+the same close, so every delivered run completes regardless of clock time.
 
 To trigger a rebuild manually: **Actions → Update dashboard and deploy to
 GitHub Pages → Run workflow** on GitHub, or `gh workflow run update-site.yml`.

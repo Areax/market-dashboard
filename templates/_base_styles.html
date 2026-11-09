@@ -39,7 +39,7 @@
   button#refreshBtn:disabled { opacity: 0.6; cursor: default; }
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
     gap: 16px;
     margin-bottom: 16px;
   }

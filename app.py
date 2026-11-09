@@ -3,7 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, abort, jsonify, render_template, send_file
+
+from fetchers.sector_view import sectors_view
 
 BASE = Path(__file__).resolve().parent
 DATA = BASE / "data"
@@ -53,10 +55,16 @@ def build_context(is_static=False):
 
 
 def build_sectors_context(is_static=False):
-    return {"data": _load("sector_signals.json", {}), "is_static": is_static}
+    """Shared by the Sectors and Stock lookup pages."""
+    data = _load("sector_signals.json", {})
+    combos = _load("sector_combos.json", {})
+    scan = _load("daily_scan.json", {})
+    fund = _load("fundamentals.json", {})
+    return {"data": data, "view": sectors_view(data, combos), "combos": combos, "scan": scan, "fund": fund,
+            "is_static": is_static}
 
 
-# Tabs link with relative "index.html" / "sectors.html" so the same links
+# Tabs link with relative "index.html" / "sectors.html" / "stock.html" so the same links
 # work on GitHub Pages (static files) and on this dev server.
 @app.route("/")
 @app.route("/index.html")
@@ -64,9 +72,35 @@ def dashboard():
     return render_template("dashboard.html", **build_context(is_static=False))
 
 
+@app.route("/combos.html")
+def combos_page():
+    return render_template("combos.html", **build_sectors_context(is_static=False))
+
+
 @app.route("/sectors.html")
 def sectors():
     return render_template("sectors.html", **build_sectors_context(is_static=False))
+
+
+@app.route("/stock.html")
+def stock():
+    return render_template("stock.html", **build_sectors_context(is_static=False))
+
+
+@app.route("/sector_charts.json")
+def sector_charts():
+    path = DATA / "sector_charts.json"
+    if not path.exists():
+        abort(404)
+    return send_file(path, mimetype="application/json", max_age=0)
+
+
+@app.route("/daily_scan_charts.json")
+def daily_scan_charts():
+    path = DATA / "daily_scan_charts.json"
+    if not path.exists():
+        abort(404)
+    return send_file(path, mimetype="application/json", max_age=0)
 
 
 @app.route("/refresh", methods=["POST"])

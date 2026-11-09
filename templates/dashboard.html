@@ -11,7 +11,7 @@
 </head>
 <body>
 
-<nav class="tabs"><a href="index.html" class="active">Overview</a><a href="sectors.html">Sectors</a></nav>
+{% set active = 'overview' %}{% include "_tabs.html" %}
 
 <header>
   <div>
@@ -21,8 +21,8 @@
   </div>
   {% if is_static %}
   <div style="text-align:right;">
-    <div class="meta">Auto-updates on weekday mornings, US ET (GitHub's free scheduler can run this
-      anywhere from ~8am into the afternoon &mdash; check the timestamp above) &middot;
+    <div class="meta">Auto-updates once a day after the US close, around 5pm ET (GitHub's free
+      scheduler can run this hours late &mdash; check the timestamp above) &middot;
       <a href="https://github.com/Areax/market-dashboard" target="_blank">Source on GitHub</a>
     </div>
     <a class="btn" href="https://github.com/Areax/market-dashboard/actions/workflows/update-site.yml"
