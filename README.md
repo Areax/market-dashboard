@@ -96,11 +96,13 @@ CI runs it before every deploy: `python -m unittest discover -s tests -t .`
 run manually. It refreshes every data source, renders `build_static.py`'s
 static `dist/index.html`, and deploys it via GitHub Pages.
 
-The cron is 22:00 UTC on weekdays: 5pm EST / 6pm EDT, after the US close,
-so the Sectors, Stock lookup and Signal combos pages always hold the
-day's final bar. GitHub's free scheduler often delivers scheduled runs
-several hours late (4.5 to 8 hours observed); a late run still picks up
-the same close, so every delivered run completes regardless of clock time.
+GitHub's free scheduler starts scheduled runs hours late (about 5 to 8.5
+hours observed, not guaranteed). To get the day's closing prices soon after
+the close, two runs fire early: 16:30 UTC and 18:30 UTC (11:30am and 1:30pm
+EST, an hour later in ET during daylight saving). A small `wait-for-close`
+job holds a run that arrives before 4:30pm ET, and skips a run when another
+one has already built after that close, so the second run is only a backup.
+Manual runs skip both checks.
 
 To trigger a rebuild manually: **Actions → Update dashboard and deploy to
 GitHub Pages → Run workflow** on GitHub, or `gh workflow run update-site.yml`.

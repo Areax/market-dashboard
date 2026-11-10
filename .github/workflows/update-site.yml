@@ -1,17 +1,22 @@
 name: Update dashboard and deploy to GitHub Pages
 
 on:
-  # Once a day after the US close. 22:00 UTC = 5pm EST / 6pm EDT, so the
-  # run always sees the day's final bar. GitHub's free scheduler often
-  # delivers scheduled runs hours late (4.5h to 7.5h observed); that is
-  # fine here, since a late run still picks up the same close. Every
-  # delivered run completes regardless of clock time.
+  # Goal: rebuild with the day's closing prices as soon as possible after
+  # the 4pm ET close. GitHub's free scheduler starts scheduled runs hours
+  # late (about 5 to 8.5 hours observed) and the delay is not guaranteed.
+  # So two runs fire before the close, sized so the usual delay lands them
+  # just after it; the second is a backup in case the first is very late
+  # or dropped. "wait-for-close" holds a run that arrives before 4:30pm ET,
+  # and skips one when another run has already built after that close.
+  # 16:30 UTC = 11:30am EST (12:30pm EDT); 18:30 UTC = 1:30pm EST (2:30pm EDT).
   schedule:
-    - cron: "0 22 * * 1-5"
+    - cron: "30 16 * * 1-5"
+    - cron: "30 18 * * 1-5"
   workflow_dispatch: {}
 
 permissions:
   contents: read
+  actions: read   # lets wait-for-close see whether today's build already ran
   pages: write
   id-token: write
 
@@ -20,7 +25,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Its own job, so waiting does not count against the build job's 6-hour limit.
+  wait-for-close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      skip: ${{ steps.wait.outputs.skip }}
+    steps:
+      - name: Wait until 4:30pm ET, or skip if already built (scheduled runs only)
+        id: wait
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(date +%s)
+          hour=$(TZ=America/New_York date +%-H)
+          # before 6am ET the last close is yesterday's
+          if [ "$hour" -lt 6 ]; then day=yesterday; else day=today; fi
+          close=$(TZ=America/New_York date -d "$day 16:30" +%s)
+          if [ "$now" -lt "$close" ]; then
+            echo "Arrived $(( (close - now) / 60 )) min before 4:30pm ET; waiting."
+            sleep $(( close - now ))
+          fi
+          # skip if another run already finished building after this close
+          done_at=$(gh run list -R "$GITHUB_REPOSITORY" --workflow update-site.yml --status success \
+            --limit 10 --json databaseId,updatedAt \
+            -q "[.[] | select(.databaseId != $GITHUB_RUN_ID) | .updatedAt] | max // empty")
+          if [ -n "$done_at" ] && [ "$(date -d "$done_at" +%s)" -gt "$close" ]; then
+            echo "Already built after this close (run finished $done_at); skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Building now."
+          fi
+
   build:
+    needs: wait-for-close
+    if: needs.wait-for-close.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
