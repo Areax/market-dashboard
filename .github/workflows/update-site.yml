@@ -27,7 +27,7 @@ concurrency:
 jobs:
   # Its own job, so waiting does not count against the build job's 6-hour limit.
   wait-for-close:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
       skip: ${{ steps.wait.outputs.skip }}
@@ -61,7 +61,7 @@ jobs:
   build:
     needs: wait-for-close
     if: needs.wait-for-close.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +90,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
